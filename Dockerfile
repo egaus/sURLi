@@ -3,27 +3,21 @@ MAINTAINER "Evan Gaustad"
 
 # Update repos and get Python3
 RUN apt-get update \
-  && apt-get install -y python3-pip python3-dev wget p7zip-full software-properties-common curl xvfb \
+  && apt-get install -y python3-pip python3-dev wget p7zip-full software-properties-common curl xvfb unzip \
   && cd /usr/local/bin \
   && ln -s /usr/bin/python3 python \
   && pip3 install --upgrade pip
 
-RUN apt-add-repository ppa:mozillateam/firefox-next \
-  &&  apt-get install -y firefox
+# install google chrome
+RUN wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | apt-key add -
+RUN sh -c 'echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google-chrome.list'
+RUN apt-get -y update
+RUN apt-get install -y google-chrome-stable
 
-# Dev packages for phantomjs and 7zip
-#RUN apt-get install build-essential chrpath libssl-dev libxft-dev libfreetype6-dev libfreetype6 libfontconfig1-dev libfontconfig1  -y
-#RUN wget https://bitbucket.org/ariya/phantomjs/downloads/phantomjs-2.1.1-linux-x86_64.tar.bz2 \
-#  && tar xvjf phantomjs-2.1.1-linux-x86_64.tar.bz2 -C /usr/local/share/ \
-#  && ln -s /usr/local/share/phantomjs-2.1.1-linux-x86_64/bin/phantomjs /usr/local/bin/
-
-RUN export BASE_URL=https://github.com/mozilla/geckodriver/releases/download \
-  && export VERSION=$(curl -sL \
-    https://api.github.com/repos/mozilla/geckodriver/releases/latest | \
-    grep tag_name | cut -d '"' -f 4) \
-  && curl -sL \
-  $BASE_URL/$VERSION/geckodriver-$VERSION-linux64.tar.gz | tar -xz \
-  && mv geckodriver /usr/local/bin/geckodriver
+# install chromedriver
+RUN apt-get install -yqq unzip
+RUN wget -O /tmp/chromedriver.zip http://chromedriver.storage.googleapis.com/`curl -sS chromedriver.storage.googleapis.com/LATEST_RELEASE`/chromedriver_linux64.zip
+RUN unzip /tmp/chromedriver.zip chromedriver -d /usr/local/bin/
 
 # Adding sURLi library
 RUN mkdir /surli
@@ -39,9 +33,9 @@ RUN pip3 install /surli && cd /surli
 ADD surli_cli.py /surli
 WORKDIR /surli
 
-# RUN Xvfb :0 &
-# USER surli
-# ENV DISPLAY=:0.0
+RUN Xvfb :0 &
+#USER surli
+ENV DISPLAY=:0.0
 
-#ENTRYPOINT ["/bin/sh"]
+# ENTRYPOINT ["/bin/sh"]
 ENTRYPOINT ["python3", "/surli/surli_cli.py"]

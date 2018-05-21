@@ -1,12 +1,9 @@
-#! /usr/bin/env python
-
 from selenium import webdriver
-from selenium.webdriver.firefox.options import Options
-from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.common.desired_capabilities import DesiredCapabilities
+from selenium.webdriver.chrome.options import Options
+from PIL import Image
 import os
-import urllib
 import codecs
-import argparse
 from subprocess import call
 import datetime
 import hashlib
@@ -15,21 +12,45 @@ import time
 import json
 
 class sURLi:
-    def __init__(self, temp_dir='./temp_results', output_dir='./results', useragent='Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/39.0.2171.71 Safari/537.36 Edge/12.0'):
+    def __init__(self, temp_dir='./temp_results', output_dir='./results', useragent='Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/47.0.2526.111 Safari/537.36'):
+        options = Options()
+        options.add_argument("--headless")
+        options.add_argument("--no-sandbox")  # Needed to run in docker
+        options.add_argument("user-agent={}".format(useragent))
+
+        caps = DesiredCapabilities.CHROME
+        caps['loggingPrefs'] = {'performance' : 'ALL'}
+        self.driver = webdriver.Chrome(chrome_options=options, desired_capabilities=caps)
+        # self.driver.wait = WebDriverWait(self.driver, 5)
+
         self.temp_dir = temp_dir
         self.output_dir = output_dir
         ensure_directory(self.output_dir)
         ensure_directory(self.temp_dir)
 
-        print("Invoking Firefox webdriver")
-        window_size = '1920,1080'
-        options = Options()
-        options.add_argument("--headless")
-        options.add_argument("user-agent={}".format(useragent))
-        options.add_argument("--window-size={}".format(window_size))
-        self.driver = webdriver.Firefox(firefox_options=options)
-        #self.driver.wait = WebDriverWait(self.driver, 5)
 
+    def pad_image(self, imagename, desired_size=1280):
+        '''
+        sourceglob is a glob patterns e.g. "./images/*.png"
+        destdir is a directory location e.g. "./images_resized/"
+        '''
+        try:
+            img = Image.open(imagename)
+            old_size = img.size
+            ratio = float(desired_size) / max(old_size)
+            new_size = tuple([int(x * ratio) for x in old_size])
+            img = img.resize(new_size, Image.ANTIALIAS)
+            new_img = Image.new("RGB", (desired_size, desired_size))
+            new_img.paste(img, ((desired_size - new_size[0]) // 2, (desired_size - new_size[1]) // 2))
+            new_img.save(imagename)
+        except Exception as e:
+            print("error processing: {} - {}".format(imagename, str(e)))
+
+    def write_new_to_json(self, entries, log_file_name):
+        with open(log_file_name, 'a') as outfile:
+            for entry in entries:
+                json.dump(entry, outfile)
+                outfile.write('\n')
 
     def get_url_contents(self, url, tag=None, timeout_seconds=60, images=False):
         '''
@@ -42,18 +63,21 @@ class sURLi:
         :return: Nothing, all results and logs saved to self.output_dir
         '''
         print("\nRetrieving contents of url {}".format(url))
-        date_str = datetime.datetime.now().strftime("%Y%m%d")
-        output_dir = os.path.join(self.output_dir, date_str)
-        ensure_directory(output_dir)
-        log = {'original_url' : url}
-        log['timestamp'] = datetime.datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
 
         # Set timeouts
         self.driver.implicitly_wait(timeout_seconds)
         self.driver.set_page_load_timeout(timeout_seconds)
         self.driver.set_script_timeout(timeout_seconds)
 
+        if tag is None:
+            tag = datetime.datetime.now().strftime('%Y%m%d_%H%m%S')
+
         url_md5_str = hashlib.md5(url.encode('utf-8')).hexdigest()
+        log = {'original_url': url}
+        date_str = datetime.datetime.now().strftime("%Y%m%d")
+        output_dir = os.path.join(self.output_dir, '{}/{}'.format(tag, date_str))
+        ensure_directory(output_dir)
+        log['timestamp'] = datetime.datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
 
         try:
             # Get URL
@@ -64,10 +88,8 @@ class sURLi:
             page = self.driver.page_source
             md5 = hashlib.md5(page.encode('utf-8'))
             md5_str = md5.hexdigest()
-            if tag is None:
-                tag = datetime.datetime.now().strftime('%Y%m%d_%H%m%S')
 
-            output_dir = os.path.join(output_dir, '{}/{}'.format(tag, url_md5_str))
+            output_dir = os.path.join(output_dir, url_md5_str)
             output_dir = check_duplicate_directory(output_dir)
 
             later = time.time()
@@ -82,23 +104,23 @@ class sURLi:
             file_object = codecs.open(file_path_page_content, 'w', 'utf-8')
             file_object.write(page)
 
+            # Save Performance Logs
+            perf_log_entries = []
+            for entry in self.driver.get_log('performance'):
+                perf_log_entries.append(entry)
+            perf_log_filename = os.path.join(output_dir, 'browser_logs.json')
+            self.write_new_to_json(perf_log_entries, perf_log_filename)
+
             # Screenshot of page
             print("Saving screenshot")
-            self.driver.save_screenshot(os.path.join(output_dir, '{}.screenshot.png'.format(tag)))
+            #self.driver.set_window_position(0, 0)
+            image_size = 1280
+            self.driver.set_window_size(image_size, image_size)
+            screenshot_filename = os.path.join(output_dir, '{}.screenshot.png'.format(tag))
+            self.driver.save_screenshot(screenshot_filename)
+            self.pad_image(screenshot_filename, desired_size=image_size)
 
-            # Images on page
-            if images:
-                images = self.driver.find_elements_by_tag_name('img')
-                idx = 0
-                for image in images:
-                    src = image.get_attribute("src")
-                    if src:
-                        try:
-                            image_filepath = os.path.join(self.temp_dir, 'images', "img_{}".format(idx))
-                            urllib.urlretrieve(src, image_filepath)
-                        except:
-                            print("Failed retrieving image: {}".format(src))
-                    idx += 1
+            print("done")
             archive_path = os.path.join(output_dir, 'page_content.zip')
             zip_path = os.path.join(self.temp_dir, "*")
 
@@ -185,3 +207,17 @@ def ensure_directory(directory):
         print("Error creating directory: {}".format(e))
 
     return False
+
+if __name__ == '__main__':
+    url = 'https://stackoverflow.com/questions/8255929/running-selenium-webdriver-python-bindings-in-chrome?utm_medium=organic&utm_source=google_rich_qa&utm_campaign=google_rich_qa'
+    url = 'http://liveresults.be/2016/ifam-outdoor/schedule.html'
+    #url = 'http://wiki.c2.com/?GoodVariableNames'
+    #url = 'http://google.com'
+    url = 'http://somenonesensethatdoesnotexistbutwethoughtitdid.com'
+    url = 'invalid.stuffasdfsd'
+
+    temp_dir = './temp'
+    output_dir = './output'
+
+    surli = sURLi(temp_dir=temp_dir, output_dir=output_dir)
+    surli.get_url_contents(url, tag='whocares', timeout_seconds=60)

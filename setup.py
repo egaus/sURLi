@@ -7,5 +7,5 @@ setup(name='sURLi',
       author='Evan Gaustad',
       author_email='evan.gaustad@gmail.com',
       packages=['sURLi'],
-      install_requires=['selenium'],
+      install_requires=['selenium', 'Pillow'],
       zip_safe=True)

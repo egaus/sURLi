@@ -5,6 +5,7 @@ Simple tool used to grab a screenshot and download content from URLs.
 Features:
  - Organizes downloaded conent by date, tag, and hash of website content
  - Provides a screenshot of the site
+ - Logs the chrome network traffic logs to a json file
  - Zip encrypts the page content with the password "infected"
 
 Requirements:
@@ -41,13 +42,15 @@ Retrieving contents of url https://www.google.com
 Everything is Ok
 $ tree data/
 data/
-└── 20180411
-    └── 20180411_190423
-        └── 0fa6039899cf25bd674606b3f1fe3828
-            ├── 20180411_190423.screenshot.png
-            └── page_content.zip
+`-- 20180521_110537
+    `-- 20180521
+        `-- 8ffdefbdec956b595d257f0aaeefd623
+            |-- 20180521_110537.screenshot.png
+            |-- browser_logs.json
+            |-- logs.json
+            `-- page_content.zip
 
-3 directories, 2 files
+4 directories, 2 files
 ```
 
 After running the example above, the downloaded results will be in ./data
